@@ -164,6 +164,7 @@ freeproc(struct proc *p)
   p->killed = 0;
   p->xstate = 0;
   p->state = UNUSED;
+  p->traceMask = 0;
 }
 
 // Create a user page table for a given process,
@@ -288,6 +289,9 @@ fork(void)
     return -1;
   }
   np->sz = p->sz;
+
+  // copy parent traceMask to the new process (np)
+  np->traceMask = p->traceMask;
 
   // copy saved user registers.
   *(np->trapframe) = *(p->trapframe);
@@ -570,6 +574,13 @@ wakeup(void *chan)
       release(&p->lock);
     }
   }
+}
+
+void
+trace(int mask)
+{
+    struct proc *p = myproc();
+    p->traceMask = mask;
 }
 
 // Kill the process with the given pid.
