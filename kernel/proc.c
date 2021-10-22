@@ -140,6 +140,9 @@ found:
   memset(&p->context, 0, sizeof(p->context));
   p->context.ra = (uint64)forkret;
   p->context.sp = p->kstack + PGSIZE;
+  acquire(&tickslock);
+  p->creationTime = ticks;
+  release(&tickslock);
 
   return p;
 }
@@ -445,6 +448,7 @@ scheduler(void)
   struct cpu *c = mycpu();
   
   c->proc = 0;
+#ifdef DEFAULT
   for(;;){
     // Avoid deadlock by ensuring that devices can interrupt.
     intr_on();
@@ -466,6 +470,46 @@ scheduler(void)
       release(&p->lock);
     }
   }
+#endif
+#ifdef FCFS
+  for(;;){
+    intr_on();
+
+    int minTime = -1;
+    struct proc *minProc = 0;
+    for(p = proc; p < &proc[NPROC]; p++) {
+      acquire(&p->lock);
+      if (p->state == RUNNABLE) {
+        if (minTime == -1) {
+          minTime = p->creationTime;
+          minProc = p;
+        }
+        else if (p->creationTime < minTime) {
+          minTime = p->creationTime;
+          release(&minProc->lock);
+          minProc = p;
+        }
+      }
+      if (p != minProc)
+        release(&p->lock);
+    }
+    if (!minProc) continue;
+
+    // Process is done running for now.
+    // It should have changed its p->state before coming back.
+    // Switch to chosen process.  It is the process's job
+    // to release its lock and then reacquire it
+    // before jumping back to us.
+    minProc->state = RUNNING;
+    c->proc = minProc;
+    swtch(&c->context, &minProc->context);
+
+    // Process is done running for now.
+    // It should have changed its p->state before coming back.
+    c->proc = 0;
+    release(&minProc->lock);
+  }
+#endif
 }
 
 // Switch to scheduler.  Must hold only p->lock
