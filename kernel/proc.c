@@ -6,6 +6,9 @@
 #include "proc.h"
 #include "defs.h"
 
+#define MIN(a, b) ((a) < (b) ? (a) : (b))
+#define MAX(a, b) ((a) < (b) ? (b) : (a))
+
 struct cpu cpus[NCPU];
 
 struct proc proc[NPROC];
@@ -140,9 +143,14 @@ found:
   memset(&p->context, 0, sizeof(p->context));
   p->context.ra = (uint64)forkret;
   p->context.sp = p->kstack + PGSIZE;
+
   acquire(&tickslock);
   p->creationTime = ticks;
   release(&tickslock);
+
+  p->staticPriority = 60;
+  p->numSched = 0;
+  p->runTime = 0;
 
   return p;
 }
@@ -475,7 +483,7 @@ scheduler(void)
   for(;;){
     intr_on();
 
-    int minTime = -1;
+    uint minTime = -1;
     struct proc *minProc = 0;
     for(p = proc; p < &proc[NPROC]; p++) {
       acquire(&p->lock);
@@ -495,8 +503,71 @@ scheduler(void)
     }
     if (!minProc) continue;
 
+    // Switch to chosen process.  It is the process's job
+    // to release its lock and then reacquire it
+    // before jumping back to us.
+    minProc->state = RUNNING;
+    c->proc = minProc;
+    swtch(&c->context, &minProc->context);
+
     // Process is done running for now.
     // It should have changed its p->state before coming back.
+    c->proc = 0;
+    release(&minProc->lock);
+  }
+#endif
+#ifdef PBS
+  for(;;){
+    intr_on();
+
+    int minPriority = -1;
+    uint64 minSched = -1;
+    uint64 minTime = -1;
+    struct proc *minProc = 0;
+    for(p = proc; p < &proc[NPROC]; p++) {
+      acquire(&p->lock);
+      if (p->state == RUNNABLE) {
+        acquire(&tickslock);
+        uint64 total = ticks - p->creationTime;
+        release(&tickslock);
+        int niceness = (total - p->runTime) * 10 / total;
+        int dp = MAX(0, MIN(p->staticPriority - niceness + 5, 100));
+        if (minPriority == -1) {
+          minPriority = dp;
+          minSched = p->numSched;
+          minTime = p->creationTime;
+          minProc = p;
+        }
+        else {
+          if (dp < minPriority) {
+            minPriority = dp;
+            minSched = p->numSched;
+            minTime = p->creationTime;
+            minProc = p;
+          }
+          else if (dp == minPriority) {
+            if (p->numSched < minSched) {
+              minPriority = dp;
+              minSched = p->numSched;
+              minTime = p->creationTime;
+              minProc = p;
+            }
+            else if (p->numSched == minSched) {
+              if (p->creationTime < minTime) {
+                minPriority = dp;
+                minSched = p->numSched;
+                minTime = p->creationTime;
+                minProc = p;
+              }
+            }
+          }
+        }
+      }
+      if (p != minProc)
+        release(&p->lock);
+    }
+    if (!minProc) continue;
+
     // Switch to chosen process.  It is the process's job
     // to release its lock and then reacquire it
     // before jumping back to us.

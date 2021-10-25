@@ -61,6 +61,9 @@ SCHEDULER_FLAG = -D DEFAULT
 ifeq ($(SCHEDULER), FCFS)
 	SCHEDULER_FLAG = -D FCFS
 endif
+ifeq ($(SCHEDULER), PBS)
+	SCHEDULER_FLAG = -D PBS
+endif
 
 CFLAGS = -Wall -Werror -O -fno-omit-frame-pointer -ggdb
 CFLAGS += -MD

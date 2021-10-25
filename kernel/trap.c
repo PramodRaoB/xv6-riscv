@@ -152,8 +152,10 @@ kerneltrap()
   }
 
   // give up the CPU if this is a timer interrupt.
+#ifndef FCFS
   if(which_dev == 2 && myproc() != 0 && myproc()->state == RUNNING)
     yield();
+#endif
 
   // the yield() may have caused some traps to occur,
   // so restore trap registers for use by kernelvec.S's sepc instruction.
@@ -168,6 +170,15 @@ clockintr()
   ticks++;
   wakeup(&ticks);
   release(&tickslock);
+
+  struct proc* p = myproc();
+  if (p) {
+    acquire(&p->lock);
+    if (p->state == RUNNING) {
+      p->runTime++;
+    }
+    release(&p->lock);
+  }
 }
 
 // check if it's an external interrupt or software interrupt,
