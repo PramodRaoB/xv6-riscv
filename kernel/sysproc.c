@@ -77,10 +77,18 @@ uint64
 sys_trace(void)
 {
     int n;
-    if (argint(0, &n) < 0)
-        return -1;
+    argint(0, &n);
     trace(n);
     return 0;
+}
+
+uint64
+sys_set_priority(void)
+{
+  int pid, newPriority;
+  argint(0, &newPriority);
+  argint(1, &pid);
+  return set_priority(newPriority, pid);
 }
 
 uint64

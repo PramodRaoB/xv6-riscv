@@ -110,6 +110,7 @@ extern uint64 sys_wait(void);
 extern uint64 sys_write(void);
 extern uint64 sys_uptime(void);
 extern uint64 sys_trace(void);
+extern uint64 sys_set_priority(void);
 
 static uint64 (*syscalls[])(void) = {
 [SYS_fork]    sys_fork,
@@ -134,6 +135,7 @@ static uint64 (*syscalls[])(void) = {
 [SYS_mkdir]   sys_mkdir,
 [SYS_close]   sys_close,
 [SYS_trace]   sys_trace,
+[SYS_set_priority] sys_set_priority,
 };
 
 struct syscallinfo get_syscall_info[] = {
@@ -159,6 +161,7 @@ struct syscallinfo get_syscall_info[] = {
 [SYS_mkdir]   {"mkdir", 1},
 [SYS_close]   {"close", 1},
 [SYS_trace]   {"trace", 1},
+[SYS_set_priority] {"set_priority", 2},
 };
 
 void
@@ -169,13 +172,15 @@ syscall(void)
 
   num = p->trapframe->a7;
   if(num > 0 && num < NELEM(syscalls) && syscalls[num]) {
+    uint64 save = argraw(0);
     p->trapframe->a0 = syscalls[num]();
     int mask = p->traceMask;
     if (mask & (1 << num)) {
         struct syscallinfo info;
         info = get_syscall_info[num];
         printf("%d: syscall %s ( ", p->pid, info.name);
-        for (int i = 0; i < info.argnum; i++)
+        printf("%l ", save);
+        for (int i = 1; i < info.argnum; i++)
             printf("%d ", argraw(i));
         printf(") -> %d\n", p->trapframe->a0);
     }

@@ -9,6 +9,8 @@ main(int argc, char *argv[])
         exit(1);
     }
     int mask = atoi(argv[1]);
+    for (long long i = 0; i < 10000000000; i++)
+        i += 0;
     trace(mask);
     char *newCmd[argc - 1];
     for (int i = 2; i < argc; i++)

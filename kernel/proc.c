@@ -144,13 +144,13 @@ found:
   p->context.ra = (uint64)forkret;
   p->context.sp = p->kstack + PGSIZE;
 
-  acquire(&tickslock);
   p->creationTime = ticks;
-  release(&tickslock);
 
   p->staticPriority = 60;
   p->numSched = 0;
-  p->runTime = 0;
+  p->totalRTime = 0;
+  p->prevRTime = -1;
+  p->prevSchedTime = p->creationTime;
 
   return p;
 }
@@ -442,6 +442,19 @@ wait(uint64 addr)
   }
 }
 
+int
+get_DP(struct proc *p)
+{
+  uint64 total = ticks - p->prevSchedTime;
+  int niceness;
+  if (p->prevRTime == -1)
+    niceness = 5;
+  else
+    niceness = (total - p->prevRTime) * 10 / total;
+  int dp = MAX(0, MIN(p->staticPriority - niceness + 5, 100));
+  return dp;
+}
+
 // Per-CPU process scheduler.
 // Each CPU calls scheduler() after setting itself up.
 // Scheduler never returns.  It loops, doing:
@@ -493,8 +506,8 @@ scheduler(void)
           minProc = p;
         }
         else if (p->creationTime < minTime) {
-          minTime = p->creationTime;
           release(&minProc->lock);
+          minTime = p->creationTime;
           minProc = p;
         }
       }
@@ -526,12 +539,8 @@ scheduler(void)
     struct proc *minProc = 0;
     for(p = proc; p < &proc[NPROC]; p++) {
       acquire(&p->lock);
+      int dp = get_DP(p);
       if (p->state == RUNNABLE) {
-        acquire(&tickslock);
-        uint64 total = ticks - p->creationTime;
-        release(&tickslock);
-        int niceness = (total - p->runTime) * 10 / total;
-        int dp = MAX(0, MIN(p->staticPriority - niceness + 5, 100));
         if (minPriority == -1) {
           minPriority = dp;
           minSched = p->numSched;
@@ -540,6 +549,7 @@ scheduler(void)
         }
         else {
           if (dp < minPriority) {
+            release(&minProc->lock);
             minPriority = dp;
             minSched = p->numSched;
             minTime = p->creationTime;
@@ -547,6 +557,7 @@ scheduler(void)
           }
           else if (dp == minPriority) {
             if (p->numSched < minSched) {
+              release(&minProc->lock);
               minPriority = dp;
               minSched = p->numSched;
               minTime = p->creationTime;
@@ -554,6 +565,7 @@ scheduler(void)
             }
             else if (p->numSched == minSched) {
               if (p->creationTime < minTime) {
+                release(&minProc->lock);
                 minPriority = dp;
                 minSched = p->numSched;
                 minTime = p->creationTime;
@@ -571,6 +583,9 @@ scheduler(void)
     // Switch to chosen process.  It is the process's job
     // to release its lock and then reacquire it
     // before jumping back to us.
+    minProc->numSched++;
+    minProc->prevRTime = 0;
+    minProc->prevSchedTime = ticks;
     minProc->state = RUNNING;
     c->proc = minProc;
     swtch(&c->context, &minProc->context);
@@ -698,6 +713,24 @@ trace(int mask)
     p->traceMask = mask;
 }
 
+int
+set_priority(int newPriority, int pid)
+{
+  struct proc *p = 0;
+  for (p = proc; p < &proc[NPROC]; p++) {
+    acquire(&p->lock);
+    if (p->pid == pid) {
+      int save = p->staticPriority;
+      p->staticPriority = newPriority;
+      p->prevRTime = -1;
+      release(&p->lock);
+      return save;
+    }
+    release(&p->lock);
+  }
+  return -1;
+}
+
 // Kill the process with the given pid.
 // The victim won't exit until it tries to return
 // to user space (see usertrap() in trap.c).
@@ -769,6 +802,12 @@ procdump(void)
   char *state;
 
   printf("\n");
+  #if defined(DEFAULT) || defined(FCFS)
+    printf("PID\tState\tName\n");
+  #endif
+  #ifdef PBS
+    printf("PID\tPriority\tState\trtime\twtime\tnrun\n");
+  #endif
   for(p = proc; p < &proc[NPROC]; p++){
     if(p->state == UNUSED)
       continue;
@@ -776,7 +815,31 @@ procdump(void)
       state = states[p->state];
     else
       state = "???";
-    printf("%d %s %s", p->pid, state, p->name);
+    #if defined(DEFAULT) || defined(FCFS)
+      printf("%d %s %s", p->pid, state, p->name);
+    #endif
+    #ifdef PBS
+      uint64 total = ticks - p->creationTime;
+      int dp = get_DP(p);
+      printf("%d        %d             %s    %d       %d    %d\n", p->pid, dp, state, p->totalRTime, total - p->totalRTime, p->numSched);
+    #endif
     printf("\n");
+  }
+}
+
+void
+update_runtime(void)
+{
+  struct proc *p = 0;
+  for (p = proc; p < &proc[NPROC]; p++) {
+    acquire(&p->lock);
+    if (p->state == RUNNING) {
+      p->totalRTime++;
+      if (p->prevRTime == -1)
+        p->prevRTime = 1;
+      else
+        p->prevRTime++;
+    }
+    release(&p->lock);
   }
 }

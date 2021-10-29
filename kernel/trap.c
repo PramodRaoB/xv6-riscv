@@ -77,7 +77,7 @@ usertrap(void)
     exit(-1);
 
   // give up the CPU if this is a timer interrupt.
-#ifndef FCFS
+#if !defined(FCFS) && !defined(PBS)
   if(which_dev == 2)
     yield();
 #endif
@@ -152,7 +152,7 @@ kerneltrap()
   }
 
   // give up the CPU if this is a timer interrupt.
-#ifndef FCFS
+#if !defined(FCFS) && !defined(PBS)
   if(which_dev == 2 && myproc() != 0 && myproc()->state == RUNNING)
     yield();
 #endif
@@ -168,17 +168,9 @@ clockintr()
 {
   acquire(&tickslock);
   ticks++;
+  update_runtime();
   wakeup(&ticks);
   release(&tickslock);
-
-  struct proc* p = myproc();
-  if (p) {
-    acquire(&p->lock);
-    if (p->state == RUNNING) {
-      p->runTime++;
-    }
-    release(&p->lock);
-  }
 }
 
 // check if it's an external interrupt or software interrupt,

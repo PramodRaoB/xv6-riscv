@@ -109,5 +109,7 @@ struct proc {
   uint64 creationTime;
   int staticPriority;
   uint64 numSched;
-  uint64 runTime;
+  uint64 totalRTime;
+  uint64 prevSchedTime;
+  uint64 prevRTime;
 };
