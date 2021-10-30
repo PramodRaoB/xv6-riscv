@@ -112,4 +112,5 @@ struct proc {
   uint64 totalRTime;
   uint64 prevSchedTime;
   uint64 prevRTime;
+  uint64 exitTime;
 };

@@ -108,6 +108,7 @@ void            trace(int);
 int             get_DP(struct proc *);
 void            update_runtime(void);
 int             set_priority(int, int);
+int             waitx(uint64, uint*, uint*);
 
 // swtch.S
 void            swtch(struct context*, struct context*);

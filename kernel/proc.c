@@ -145,6 +145,7 @@ found:
   p->context.sp = p->kstack + PGSIZE;
 
   p->creationTime = ticks;
+  p->exitTime = 0;
 
   p->staticPriority = 60;
   p->numSched = 0;
@@ -384,6 +385,7 @@ exit(int status)
   acquire(&p->lock);
 
   p->xstate = status;
+  p->exitTime = ticks;
   p->state = ZOMBIE;
 
   release(&wait_lock);
@@ -731,6 +733,57 @@ set_priority(int newPriority, int pid)
   return -1;
 }
 
+// Wait for a child process to exit and return its pid.
+// Return -1 if this process has no children.
+int
+waitx(uint64 addr, uint* rtime, uint* wtime)
+{
+  struct proc *np;
+  int havekids, pid;
+  struct proc *p = myproc();
+
+  acquire(&wait_lock);
+
+  for(;;){
+    // Scan through table looking for exited children.
+    havekids = 0;
+    for(np = proc; np < &proc[NPROC]; np++){
+      if(np->parent == p){
+        // make sure the child isn't still in exit() or swtch().
+        acquire(&np->lock);
+
+        havekids = 1;
+        if(np->state == ZOMBIE){
+          // Found one.
+          pid = np->pid;
+          *rtime = np->totalRTime;
+          *wtime = np->exitTime - np->creationTime - np->totalRTime;
+          if(addr != 0 && copyout(p->pagetable, addr, (char *)&np->xstate,
+                                  sizeof(np->xstate)) < 0) {
+            release(&np->lock);
+            release(&wait_lock);
+            return -1;
+          }
+          freeproc(np);
+          release(&np->lock);
+          release(&wait_lock);
+          return pid;
+        }
+        release(&np->lock);
+      }
+    }
+
+    // No point waiting if we don't have any children.
+    if(!havekids || p->killed){
+      release(&wait_lock);
+      return -1;
+    }
+
+    // Wait for a child to exit.
+    sleep(p, &wait_lock);  //DOC: wait-sleep
+  }
+}
+
 // Kill the process with the given pid.
 // The victim won't exit until it tries to return
 // to user space (see usertrap() in trap.c).
@@ -821,7 +874,7 @@ procdump(void)
     #ifdef PBS
       uint64 total = ticks - p->creationTime;
       int dp = get_DP(p);
-      printf("%d        %d             %s    %d       %d    %d\n", p->pid, dp, state, p->totalRTime, total - p->totalRTime, p->numSched);
+      printf("%d        %d             %s    %d       %d    %d", p->pid, dp, state, p->totalRTime, total - p->totalRTime, p->numSched);
     #endif
     printf("\n");
   }
