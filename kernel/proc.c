@@ -151,6 +151,7 @@ found:
   p->numSched = 0;
   p->totalRTime = 0;
   p->prevRTime = -1;
+  p->prevSleepTime = 0;
   p->prevSchedTime = p->creationTime;
 
   return p;
@@ -452,7 +453,8 @@ get_DP(struct proc *p)
   if (p->prevRTime == -1)
     niceness = 5;
   else
-    niceness = (total - p->prevRTime) * 10 / total;
+  niceness = (total - p->prevRTime) * 10 / total;
+    // niceness = p->prevSleepTime * 10 / total;
   int dp = MAX(0, MIN(p->staticPriority - niceness + 5, 100));
   return dp;
 }
@@ -541,8 +543,8 @@ scheduler(void)
     struct proc *minProc = 0;
     for(p = proc; p < &proc[NPROC]; p++) {
       acquire(&p->lock);
-      int dp = get_DP(p);
       if (p->state == RUNNABLE) {
+        int dp = get_DP(p);
         if (minPriority == -1) {
           minPriority = dp;
           minSched = p->numSched;
@@ -587,6 +589,7 @@ scheduler(void)
     // before jumping back to us.
     minProc->numSched++;
     minProc->prevRTime = 0;
+    minProc->prevSleepTime = 0;
     minProc->prevSchedTime = ticks;
     minProc->state = RUNNING;
     c->proc = minProc;
@@ -893,6 +896,8 @@ update_runtime(void)
       else
         p->prevRTime++;
     }
+    else if (p->state == SLEEPING)
+      p->prevSleepTime++;
     release(&p->lock);
   }
 }

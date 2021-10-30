@@ -21,11 +21,13 @@ int main() {
             sleep(200); // IO bound processes
           } else {
 #endif
-            for (volatile int i = 0; i < 1000000000; i++) {} // CPU bound process 
+            for (volatile int i = 0; i < 1000000000; i++) {
+                for (volatile int j = 0; j < 3; j++);
+            } // CPU bound process 
 #ifndef FCFS
           }
 #endif
-        //   printf("Process %d finished", n);
+          printf("Process %d finished", n);
           exit(0);
       } else {
 #ifdef PBS
