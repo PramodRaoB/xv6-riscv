@@ -12,6 +12,7 @@
 struct cpu cpus[NCPU];
 
 struct proc proc[NPROC];
+struct Queue procMLFQ[NMLFQ];
 
 struct proc *initproc;
 
@@ -28,6 +29,39 @@ extern char trampoline[]; // trampoline.S
 // memory model when using p->parent.
 // must be acquired before any p->lock.
 struct spinlock wait_lock;
+
+void
+push(struct Queue *q, struct proc *x)
+{
+    if (q->size == NPROC) {
+        panic("Process limit exceeded");
+    }
+    q->arr[q->tail] = x;
+    q->size++;
+    q->tail = (q->tail + 1) % NPROC;
+}
+
+void
+pop(struct Queue *q)
+{
+    if (q->size == 0) panic("Popping from empty queue");
+    q->head = (q->head + 1) % NPROC;
+    q->size--;
+}
+
+void
+erase(struct Queue *q, int pid)
+{
+    for (int i = q->head; i != q->tail; i = (i + 1) % NPROC) {
+        if (q->arr[i]->pid == pid) {
+            struct proc *temp = q->arr[i];
+            q->arr[i] = q->arr[(i + 1) % NPROC];
+            q->arr[(i + 1) % NPROC] = temp;
+        }
+    }
+    q->size--;
+    q->tail = (q->tail - 1 + NPROC) % NPROC;
+}
 
 // Allocate a page for each process's kernel stack.
 // Map it high in memory, followed by an invalid
@@ -56,6 +90,12 @@ procinit(void)
   for(p = proc; p < &proc[NPROC]; p++) {
       initlock(&p->lock, "proc");
       p->kstack = KSTACK((int) (p - proc));
+  }
+
+  for (int i = 0; i < NMLFQ; i++) {
+    procMLFQ[i].size = 0;
+    procMLFQ[i].head = 0;
+    procMLFQ[i].tail = 0;
   }
 }
 
@@ -152,7 +192,12 @@ found:
   p->totalRTime = 0;
   p->prevRTime = -1;
   p->prevSleepTime = 0;
-  p->prevSchedTime = p->creationTime;
+  p->qLevel = 0;
+  p->timeSlice = 1 << p->qLevel;
+  p->inQueue = 0;
+  p->qEnter = p->creationTime;
+
+  for (int i = 0; i < NMLFQ; i++) p->timeSpent[i] = 0;
 
   return p;
 }
@@ -177,7 +222,6 @@ freeproc(struct proc *p)
   p->killed = 0;
   p->xstate = 0;
   p->state = UNUSED;
-  p->traceMask = 0;
 }
 
 // Create a user page table for a given process,
@@ -448,13 +492,12 @@ wait(uint64 addr)
 int
 get_DP(struct proc *p)
 {
-  uint64 total = ticks - p->prevSchedTime;
+  uint64 total = p->prevRTime + p->prevSleepTime;
   int niceness;
   if (p->prevRTime == -1)
     niceness = 5;
   else
-  niceness = (total - p->prevRTime) * 10 / total;
-    // niceness = p->prevSleepTime * 10 / total;
+    niceness = p->prevSleepTime * 10 / total;
   int dp = MAX(0, MIN(p->staticPriority - niceness + 5, 100));
   return dp;
 }
@@ -590,7 +633,6 @@ scheduler(void)
     minProc->numSched++;
     minProc->prevRTime = 0;
     minProc->prevSleepTime = 0;
-    minProc->prevSchedTime = ticks;
     minProc->state = RUNNING;
     c->proc = minProc;
     swtch(&c->context, &minProc->context);
@@ -599,6 +641,68 @@ scheduler(void)
     // It should have changed its p->state before coming back.
     c->proc = 0;
     release(&minProc->lock);
+  }
+#endif
+#ifdef MLFQ
+  for(;;){
+    intr_on();
+
+    for (p = proc; p < &proc[NPROC]; p++) {
+      acquire(&p->lock);
+      if (p->state == RUNNABLE && ticks - p->qEnter >= AGELIMIT) {
+        if (p->inQueue) {
+          erase(&procMLFQ[p->qLevel], p->pid);
+          p->inQueue = 0;
+        }
+        p->qLevel = MAX(p->qLevel - 1, 0);
+      }
+      release(&p->lock);
+    }
+    
+    for (p = proc; p < &proc[NPROC]; p++) {
+      acquire(&p->lock);
+      if (p->state == RUNNABLE && !p->inQueue) {
+        push(&procMLFQ[p->qLevel], p);
+        p->qEnter = ticks;
+        p->inQueue = 1;
+      }
+      release(&p->lock);
+    }
+
+    p = 0;
+    int found = 0;
+    for (int level = 0; level < NMLFQ && !found; level++) {
+      while (procMLFQ[level].size) {
+        struct proc *choose = procMLFQ[level].arr[procMLFQ[level].head];
+        pop(&procMLFQ[level]);
+        acquire(&choose->lock);
+        choose->inQueue = 0;
+        if (choose->state == RUNNABLE) {
+          p = choose;
+          found = 1;
+          break;
+        }
+        if (p != choose)
+          release(&choose->lock);
+      }
+    }
+    if (!p) continue;
+
+    // Switch to chosen process.  It is the process's job
+    // to release its lock and then reacquire it
+    // before jumping back to us.
+    p->numSched++;
+    p->prevRTime = 0;
+    p->prevSleepTime = 0;
+    p->state = RUNNING;
+    p->timeSlice = 1 << p->qLevel;
+    c->proc = p;
+    swtch(&c->context, &p->context);
+
+    // Process is done running for now.
+    // It should have changed its p->state before coming back.
+    c->proc = 0;
+    release(&p->lock);
   }
 #endif
 }
@@ -725,10 +829,13 @@ set_priority(int newPriority, int pid)
   for (p = proc; p < &proc[NPROC]; p++) {
     acquire(&p->lock);
     if (p->pid == pid) {
+      int old = get_DP(p);
       int save = p->staticPriority;
       p->staticPriority = newPriority;
       p->prevRTime = -1;
+      int new = get_DP(p);
       release(&p->lock);
+      if (new < old) yield();
       return save;
     }
     release(&p->lock);
@@ -864,6 +971,9 @@ procdump(void)
   #ifdef PBS
     printf("PID\tPriority\tState\trtime\twtime\tnrun\n");
   #endif
+  #ifdef MLFQ
+    printf("PID\tPriority\tState\trtime\twtime\tnrun\tq0\tq1\tq2\tq3\tq4\n");
+  #endif
   for(p = proc; p < &proc[NPROC]; p++){
     if(p->state == UNUSED)
       continue;
@@ -879,6 +989,13 @@ procdump(void)
       int dp = get_DP(p);
       printf("%d        %d             %s    %d       %d    %d", p->pid, dp, state, p->totalRTime, total - p->totalRTime, p->numSched);
     #endif
+    #ifdef MLFQ
+      int lvl;
+      if (p->inQueue) lvl = p->qLevel;
+      else lvl = -1;
+      printf("%d        %d             %s    %d     %d       %d   \t", p->pid, lvl, state, p->totalRTime, ticks - p->qEnter, p->numSched);
+      for (int i = 0; i < NMLFQ; i++) printf("%d   \t", p->timeSpent[i]);
+    #endif
     printf("\n");
   }
 }
@@ -891,6 +1008,8 @@ update_runtime(void)
     acquire(&p->lock);
     if (p->state == RUNNING) {
       p->totalRTime++;
+      p->timeSpent[p->qLevel]++;
+      p->timeSlice--;
       if (p->prevRTime == -1)
         p->prevRTime = 1;
       else

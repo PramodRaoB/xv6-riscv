@@ -6,6 +6,11 @@
 #include "proc.h"
 #include "defs.h"
 
+#define MIN(a, b) ((a) < (b) ? (a) : (b))
+#define MAX(a, b) ((a) < (b) ? (b) : (a))
+
+extern struct Queue procMLFQ[NMLFQ];
+
 struct spinlock tickslock;
 uint ticks;
 
@@ -77,9 +82,26 @@ usertrap(void)
     exit(-1);
 
   // give up the CPU if this is a timer interrupt.
-#if !defined(FCFS) && !defined(PBS)
-  if(which_dev == 2)
+#if defined(DEFAULT)
+  if(which_dev == 2 && myproc() != 0 && myproc()->state == RUNNING)
     yield();
+#endif
+#if defined(MLFQ)
+  if(which_dev == 2 && myproc() != 0 && myproc()->state == RUNNING) {
+    struct proc *p = myproc();
+    int currLevel = p->qLevel, toYield = 0;
+    for (int i = 0; i < currLevel; i++) {
+      if (procMLFQ[i].size != 0) {
+        toYield = 1;
+        break;
+      }
+    }
+    if (p->timeSlice <= 0) {
+      p->qLevel = MIN(p->qLevel + 1, NMLFQ - 1);
+      toYield = 1;
+    }
+    if (toYield) yield();
+  }
 #endif
 
   usertrapret();
@@ -152,9 +174,26 @@ kerneltrap()
   }
 
   // give up the CPU if this is a timer interrupt.
-#if !defined(FCFS) && !defined(PBS)
+#if defined(DEFAULT)
   if(which_dev == 2 && myproc() != 0 && myproc()->state == RUNNING)
     yield();
+#endif
+#if defined(MLFQ)
+  if(which_dev == 2 && myproc() != 0 && myproc()->state == RUNNING) {
+    struct proc *p = myproc();
+    int currLevel = p->qLevel, toYield = 0;
+    for (int i = 0; i < currLevel; i++) {
+      if (procMLFQ[i].size != 0) {
+        toYield = 1;
+        break;
+      }
+    }
+    if (p->timeSlice <= 0) {
+      p->qLevel = MIN(p->qLevel + 1, NMLFQ - 1);
+      toYield = 1;
+    }
+    if (toYield) yield();
+  }
 #endif
 
   // the yield() may have caused some traps to occur,

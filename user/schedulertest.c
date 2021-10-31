@@ -21,13 +21,11 @@ int main() {
             sleep(200); // IO bound processes
           } else {
 #endif
-            for (volatile int i = 0; i < 1000000000; i++) {
-                for (volatile int j = 0; j < 3; j++);
-            } // CPU bound process 
+            for (volatile int i = 0; i < 1000000000; i++); // CPU bound process 
 #ifndef FCFS
           }
 #endif
-          printf("Process %d finished", n);
+          printf("Process %d finished\n", n);
           exit(0);
       } else {
 #ifdef PBS
@@ -36,11 +34,11 @@ int main() {
       }
   }
   for(;n > 0; n--) {
-      if(waitx(0,&wtime,&rtime) >= 0) {
+      if(waitx(0,&rtime,&wtime) >= 0) {
           trtime += rtime;
           twtime += wtime;
       } 
   }
-  printf("Average rtime %d,  wtime %d\n", trtime / NFORK, twtime / NFORK);
+  printf("\nAverage rtime %d,  wtime %d\n", trtime / NFORK, twtime / NFORK);
   exit(0);
 }

@@ -110,8 +110,24 @@ struct proc {
   int staticPriority;
   uint64 numSched;
   uint64 totalRTime;
-  uint64 prevSchedTime;
   uint64 prevRTime;
   uint64 prevSleepTime;
   uint64 exitTime;
+  int qLevel;
+  int timeSlice;
+  uint64 qEnter;
+  uint64 timeSpent[NMLFQ];
+  int inQueue;
 };
+
+struct Queue {
+  int head, tail;
+  struct proc *arr[NPROC];
+  int size;
+};
+
+void push(struct Queue *q, struct proc *x);
+
+void pop(struct Queue *q);
+
+void erase(struct Queue *q, int pid);

@@ -781,89 +781,89 @@ pipe1(char *s)
 
 
 // test if child is killed (status = -1)
-void
-killstatus(char *s)
-{
-  int xst;
+// void
+// killstatus(char *s)
+// {
+//   int xst;
   
-  for(int i = 0; i < 100; i++){
-    int pid1 = fork();
-    if(pid1 < 0){
-      printf("%s: fork failed\n", s);
-      exit(1);
-    }
-    if(pid1 == 0){
-      while(1) {
-        getpid();
-      }
-      exit(0);
-    }
-    sleep(1);
-    kill(pid1);
-    wait(&xst);
-    if(xst != -1) {
-       printf("%s: status should be -1\n", s);
-       exit(1);
-    }
-  }
-  exit(0);
-}
+//   for(int i = 0; i < 100; i++){
+//     int pid1 = fork();
+//     if(pid1 < 0){
+//       printf("%s: fork failed\n", s);
+//       exit(1);
+//     }
+//     if(pid1 == 0){
+//       while(1) {
+//         getpid();
+//       }
+//       exit(0);
+//     }
+//     sleep(1);
+//     kill(pid1);
+//     wait(&xst);
+//     if(xst != -1) {
+//        printf("%s: status should be -1\n", s);
+//        exit(1);
+//     }
+//   }
+//   exit(0);
+// }
 
 // meant to be run w/ at most two CPUs
-void
-preempt(char *s)
-{
-  int pid1, pid2, pid3;
-  int pfds[2];
+// void
+// preempt(char *s)
+// {
+//   int pid1, pid2, pid3;
+//   int pfds[2];
 
-  pid1 = fork();
-  if(pid1 < 0) {
-    printf("%s: fork failed", s);
-    exit(1);
-  }
-  if(pid1 == 0)
-    for(;;)
-      ;
+//   pid1 = fork();
+//   if(pid1 < 0) {
+//     printf("%s: fork failed", s);
+//     exit(1);
+//   }
+//   if(pid1 == 0)
+//     for(;;)
+//       ;
 
-  pid2 = fork();
-  if(pid2 < 0) {
-    printf("%s: fork failed\n", s);
-    exit(1);
-  }
-  if(pid2 == 0)
-    for(;;)
-      ;
+//   pid2 = fork();
+//   if(pid2 < 0) {
+//     printf("%s: fork failed\n", s);
+//     exit(1);
+//   }
+//   if(pid2 == 0)
+//     for(;;)
+//       ;
 
-  pipe(pfds);
-  pid3 = fork();
-  if(pid3 < 0) {
-     printf("%s: fork failed\n", s);
-     exit(1);
-  }
-  if(pid3 == 0){
-    close(pfds[0]);
-    if(write(pfds[1], "x", 1) != 1)
-      printf("%s: preempt write error", s);
-    close(pfds[1]);
-    for(;;)
-      ;
-  }
+//   pipe(pfds);
+//   pid3 = fork();
+//   if(pid3 < 0) {
+//      printf("%s: fork failed\n", s);
+//      exit(1);
+//   }
+//   if(pid3 == 0){
+//     close(pfds[0]);
+//     if(write(pfds[1], "x", 1) != 1)
+//       printf("%s: preempt write error", s);
+//     close(pfds[1]);
+//     for(;;)
+//       ;
+//   }
 
-  close(pfds[1]);
-  if(read(pfds[0], buf, sizeof(buf)) != 1){
-    printf("%s: preempt read error", s);
-    return;
-  }
-  close(pfds[0]);
-  printf("kill... ");
-  kill(pid1);
-  kill(pid2);
-  kill(pid3);
-  printf("wait... ");
-  wait(0);
-  wait(0);
-  wait(0);
-}
+//   close(pfds[1]);
+//   if(read(pfds[0], buf, sizeof(buf)) != 1){
+//     printf("%s: preempt read error", s);
+//     return;
+//   }
+//   close(pfds[0]);
+//   printf("kill... ");
+//   kill(pid1);
+//   kill(pid2);
+//   kill(pid3);
+//   printf("wait... ");
+//   wait(0);
+//   wait(0);
+//   wait(0);
+// }
 
 // try to find any races between exit and wait
 void
@@ -2871,8 +2871,8 @@ main(int argc, char *argv[])
     {iputtest, "iput"},
     {mem, "mem"},
     {pipe1, "pipe1"},
-    {killstatus, "killstatus"},
-    {preempt, "preempt"},
+    // {killstatus, "killstatus"},
+    // {preempt, "preempt"},
     {exitwait, "exitwait"},
     {rmdot, "rmdot"},
     {fourteen, "fourteen"},
